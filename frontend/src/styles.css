@@ -526,6 +526,29 @@ textarea {
   box-shadow: 0 12px 22px rgba(8, 127, 119, 0.18);
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.secondary-action {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #d2dee6;
+  border-radius: 7px;
+  color: #304457;
+  font-weight: 800;
+  background: #ffffff;
+}
+
+.secondary-action:disabled {
+  color: #9aa8b4;
+  cursor: not-allowed;
+  background: #f2f5f7;
+}
+
 .run-status {
   display: flex;
   align-items: center;
@@ -574,7 +597,8 @@ textarea {
 .timeline,
 .file-list,
 .results,
-.log-list {
+.log-list,
+.run-list {
   display: grid;
   gap: 10px;
 }
@@ -626,6 +650,55 @@ textarea {
   color: #283744;
   background: #f7f9fb;
   overflow-wrap: anywhere;
+}
+
+.run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e1e9ef;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.run-row.active {
+  border-color: #24b49d;
+  background: #f0fbf8;
+}
+
+.run-row > button:first-child {
+  min-width: 0;
+  text-align: left;
+}
+
+.run-row strong,
+.run-row span {
+  display: block;
+}
+
+.run-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-row span {
+  margin-top: 5px;
+  color: #687789;
+  font-size: 13px;
+}
+
+.run-row > button:last-child {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d8e3ea;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: #963943;
+  background: #ffffff;
 }
 
 .error-box,

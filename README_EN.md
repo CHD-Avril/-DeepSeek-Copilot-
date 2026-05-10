@@ -9,6 +9,8 @@ DeepSeek Copilot Workbench is a local web console for combining DeepSeek chat, a
 - Local file ingestion for `.txt`, `.md`, `.pdf`, and `.docx` documents.
 - Simple local vector-like retrieval using hashed bag-of-words embeddings.
 - Permission checks for agent execution and an append-only JSONL audit log.
+- Persistent Copilot run history in SQLite at `logs/copilot.sqlite3`, including run state and event timelines.
+- Controlled file-edit tools for patch preview, patch application, file creation, replacement, and deletion with approval gates.
 - Docker Compose services for backend, frontend, and optional Chroma.
 
 ## Quick Start
@@ -42,6 +44,13 @@ docker compose up --build
 - `POST /api/chat`
 - `POST /api/models/test`
 - `GET /api/models/config`
+- `POST /api/copilot/runs`
+- `GET /api/copilot/runs`
+- `GET /api/copilot/runs/{id}`
+- `GET /api/copilot/runs/{id}/events`
+- `DELETE /api/copilot/runs/{id}`
+- `POST /api/copilot/runs/{id}/stop`
+- `POST /api/copilot/runs/{id}/permissions`
 - `POST /api/agent/run`
 - `GET /api/agent/runs/{id}`
 - `GET /api/agent/runs/{id}/logs`
@@ -55,4 +64,4 @@ docker compose up --build
 
 ## Safety Model
 
-Agent commands are checked before execution. Destructive shell patterns such as recursive deletion, disk formatting, or hard git resets are blocked unless `AGENT_PERMISSION=ADMIN`. Every command request, execution result, model test, upload, ingest, and query is written to `logs/audit.jsonl`.
+Agent commands are checked before execution. Destructive shell patterns such as recursive deletion, disk formatting, or hard git resets are blocked unless `AGENT_PERMISSION=ADMIN`. Copilot file changes require explicit approval, and patch application is validated with `git apply --check` before writing. Every command request, execution result, model test, upload, ingest, and query is written to `logs/audit.jsonl`.

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -28,6 +28,17 @@ type View = "dashboard" | "agent" | "knowledge" | "logs" | "settings";
 type AuditLog = { id: string; timestamp: string; event: string; payload: Record<string, unknown> };
 type KBFile = { id: string; filename: string; size: number };
 type SearchResult = { filename: string; chunk: string; score: number };
+type CopilotEvent = { timestamp: string; type: string; message: string; data: Record<string, unknown> };
+type CopilotRun = {
+  id: string;
+  prompt: string;
+  status: string;
+  final_answer: string;
+  error: string;
+  created_at: string;
+  updated_at: string;
+  event_count: number;
+};
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -83,7 +94,7 @@ function App() {
       <main className="workspace">
         <Topbar />
         {view === "dashboard" && <Dashboard setView={setView} />}
-        {view === "agent" && <Agent />}
+        {view === "agent" && <AgentV3 />}
         {view === "knowledge" && <Knowledge />}
         {view === "logs" && <Logs />}
         {view === "settings" && <SettingsView />}
@@ -231,19 +242,20 @@ function RecentActivity({ setView }: { setView: (view: View) => void }) {
 
 function Agent() {
   const [prompt, setPrompt] = useState("分析 workspace 目录结构，生成项目摘要并列出潜在风险。");
-  const [command, setCommand] = useState("dir");
   const [runId, setRunId] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  const handledPermissionRequests = useRef<Set<string>>(new Set());
 
   async function run() {
     setError("");
+    handledPermissionRequests.current.clear();
     setStatus("starting");
     try {
-      const result = await api<{ id: string; status: string }>("/api/agent/run", {
+      const result = await api<{ id: string; status: string }>("/api/copilot/runs", {
         method: "POST",
-        body: JSON.stringify({ prompt, command }),
+        body: JSON.stringify({ prompt, max_steps: 8 }),
       });
       setRunId(result.id);
       setStatus(result.status);
@@ -256,12 +268,31 @@ function Agent() {
   useEffect(() => {
     if (!runId) return;
     const timer = window.setInterval(async () => {
-      const [runResult, logResult] = await Promise.all([
-        api<{ status: string }>(`/api/agent/runs/${runId}`),
-        api<{ logs: string[] }>(`/api/agent/runs/${runId}/logs`),
+      const [runResult, eventResult] = await Promise.all([
+        api<{ status: string; final_answer: string; error: string }>(`/api/copilot/runs/${runId}`),
+        api<{ events: CopilotEvent[] }>(`/api/copilot/runs/${runId}/events`),
       ]);
       setStatus(runResult.status);
-      setLogs(logResult.logs);
+      for (const event of eventResult.events) {
+        if (event.type !== "permission_request") continue;
+        const requestId = String(event.data.request_id || "");
+        if (!requestId || handledPermissionRequests.current.has(requestId)) continue;
+        handledPermissionRequests.current.add(requestId);
+        const approved = window.confirm(
+          `Copilot requests permission.\n\nReason: ${event.message}\nTool: ${event.data.tool}\nArguments: ${JSON.stringify(event.data.arguments)}`,
+        );
+        await api(`/api/copilot/runs/${runId}/permissions`, {
+          method: "POST",
+          body: JSON.stringify({ request_id: requestId, approved }),
+        });
+      }
+      setLogs(
+        eventResult.events.map((event) => {
+          const time = new Date(event.timestamp).toLocaleTimeString();
+          const suffix = Object.keys(event.data).length > 0 ? ` ${JSON.stringify(event.data)}` : "";
+          return `[${time}] ${event.type}: ${event.message}${suffix}`;
+        }),
+      );
     }, 1200);
     return () => window.clearInterval(timer);
   }, [runId]);
@@ -277,10 +308,6 @@ function Agent() {
           <label>
             任务说明
             <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-          </label>
-          <label>
-            允许执行的命令
-            <input value={command} onChange={(event) => setCommand(event.target.value)} />
           </label>
           <button className="primary" onClick={run}>
             <Play size={18} />
@@ -315,6 +342,179 @@ function Agent() {
           <div className="log-list">
             {logs.map((line, index) => (
               <div className="log-line" key={`${line}-${index}`}>{line}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AgentV3() {
+  const [prompt, setPrompt] = useState("Analyze the workspace, summarize the project, and identify risks.");
+  const [runId, setRunId] = useState("");
+  const [runs, setRuns] = useState<CopilotRun[]>([]);
+  const [events, setEvents] = useState<CopilotEvent[]>([]);
+  const [status, setStatus] = useState("idle");
+  const [finalAnswer, setFinalAnswer] = useState("");
+  const [error, setError] = useState("");
+  const handledPermissionRequests = useRef<Set<string>>(new Set());
+
+  async function refreshRuns() {
+    const result = await api<{ runs: CopilotRun[] }>("/api/copilot/runs");
+    setRuns(result.runs);
+  }
+
+  function formatEvent(event: CopilotEvent) {
+    const suffix = Object.keys(event.data).length > 0 ? ` ${JSON.stringify(event.data)}` : "";
+    return `[${new Date(event.timestamp).toLocaleTimeString()}] ${event.type}: ${event.message}${suffix}`;
+  }
+
+  async function loadRun(id: string) {
+    const [runResult, eventResult] = await Promise.all([
+      api<CopilotRun>(`/api/copilot/runs/${id}`),
+      api<{ events: CopilotEvent[] }>(`/api/copilot/runs/${id}/events`),
+    ]);
+    setRunId(id);
+    setStatus(runResult.status);
+    setFinalAnswer(runResult.final_answer || "");
+    setError(runResult.error || "");
+    setEvents(eventResult.events);
+  }
+
+  async function startRun() {
+    setError("");
+    setFinalAnswer("");
+    setEvents([]);
+    handledPermissionRequests.current.clear();
+    setStatus("starting");
+    try {
+      const result = await api<CopilotRun>("/api/copilot/runs", {
+        method: "POST",
+        body: JSON.stringify({ prompt, max_steps: 8 }),
+      });
+      setRunId(result.id);
+      setStatus(result.status);
+      await refreshRuns();
+    } catch (exc) {
+      setStatus("failed");
+      setError(exc instanceof Error ? exc.message : "Failed to start run");
+    }
+  }
+
+  async function stopRun() {
+    if (!runId) return;
+    const result = await api<CopilotRun>(`/api/copilot/runs/${runId}/stop`, { method: "POST" });
+    setStatus(result.status);
+    await refreshRuns();
+  }
+
+  async function deleteRun(id: string) {
+    await api(`/api/copilot/runs/${id}`, { method: "DELETE" });
+    if (runId === id) {
+      setRunId("");
+      setEvents([]);
+      setFinalAnswer("");
+      setError("");
+      setStatus("idle");
+    }
+    await refreshRuns();
+  }
+
+  useEffect(() => { void refreshRuns(); }, []);
+
+  useEffect(() => {
+    if (!runId) return;
+    const timer = window.setInterval(async () => {
+      const [runResult, eventResult] = await Promise.all([
+        api<CopilotRun>(`/api/copilot/runs/${runId}`),
+        api<{ events: CopilotEvent[] }>(`/api/copilot/runs/${runId}/events`),
+      ]);
+      setStatus(runResult.status);
+      setFinalAnswer(runResult.final_answer || "");
+      setError(runResult.error || "");
+      setEvents(eventResult.events);
+
+      for (const event of eventResult.events) {
+        if (event.type !== "permission_request") continue;
+        const requestId = String(event.data.request_id || "");
+        if (!requestId || handledPermissionRequests.current.has(requestId)) continue;
+        handledPermissionRequests.current.add(requestId);
+        const approved = window.confirm(
+          `Copilot requests permission.\n\nReason: ${event.message}\nTool: ${event.data.tool}\nArguments: ${JSON.stringify(event.data.arguments)}`,
+        );
+        await api(`/api/copilot/runs/${runId}/permissions`, {
+          method: "POST",
+          body: JSON.stringify({ request_id: requestId, approved }),
+        });
+      }
+
+      if (["completed", "failed", "stopped"].includes(runResult.status)) {
+        await refreshRuns();
+      }
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [runId]);
+
+  return (
+    <section>
+      <PageHeader eyebrow="AI Agent" title="Copilot run console">
+        Create persisted agent runs, review every event, approve risky tools, and revisit previous runs after restart.
+      </PageHeader>
+      <div className="two-column">
+        <div className="panel">
+          <SectionTitle icon={<Sparkles size={19} />} title="Create run" />
+          <label>
+            Task prompt
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          </label>
+          <div className="button-row">
+            <button className="primary" onClick={startRun}>
+              <Play size={18} />
+              Run task
+            </button>
+            <button className="secondary-action" disabled={!runId} onClick={stopRun}>
+              Stop
+            </button>
+          </div>
+          {error && <div className="error-box">{error}</div>}
+          {finalAnswer && <div className="success-box">{finalAnswer}</div>}
+        </div>
+        <div className="panel">
+          <div className="run-status">
+            <span className={`status-dot ${status}`} />
+            <div>
+              <strong>{status.toUpperCase()}</strong>
+              <span>{runId ? `Run ${runId.slice(0, 8)}` : "No active run"}</span>
+            </div>
+          </div>
+          <SectionTitle icon={<Activity size={19} />} title="Run history" />
+          <div className="run-list">
+            {runs.length === 0 && <div className="empty-state">No runs yet.</div>}
+            {runs.map((run) => (
+              <div className={run.id === runId ? "run-row active" : "run-row"} key={run.id}>
+                <button onClick={() => loadRun(run.id)}>
+                  <strong>{run.prompt}</strong>
+                  <span>{run.status} - {run.event_count} events - {new Date(run.updated_at).toLocaleString()}</span>
+                </button>
+                <button title="Delete run" onClick={() => deleteRun(run.id)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="panel output-panel">
+        <SectionTitle icon={<FileText size={19} />} title="Event stream" />
+        {events.length === 0 ? (
+          <div className="empty-state">Run events will appear here.</div>
+        ) : (
+          <div className="log-list">
+            {events.map((event) => (
+              <div className="log-line" key={`${event.timestamp}-${event.type}-${event.message}`}>
+                {formatEvent(event)}
+              </div>
             ))}
           </div>
         )}

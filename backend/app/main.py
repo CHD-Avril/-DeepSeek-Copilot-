@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import agent, chat, knowledge, logs
+from app.api import agent, chat, copilot, knowledge, logs
 from app.config import get_settings
 
 
@@ -17,6 +17,7 @@ app.add_middleware(
 )
 
 app.include_router(chat.router, prefix="/api")
+app.include_router(copilot.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
