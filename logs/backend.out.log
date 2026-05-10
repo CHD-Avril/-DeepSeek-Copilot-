@@ -1,0 +1,5 @@
+INFO:     127.0.0.1:61791 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65405 - "OPTIONS /api/kb/files HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65405 - "GET /api/kb/files HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65405 - "OPTIONS /api/logs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65405 - "GET /api/logs HTTP/1.1" 200 OK
