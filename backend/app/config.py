@@ -8,6 +8,14 @@ def backend_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def repo_root() -> Path:
+    return backend_root().parent
+
+
+def env_path() -> Path:
+    return repo_root() / ".env"
+
+
 def resolve_repo_path(path: Path) -> Path:
     return path if path.is_absolute() else (backend_root() / path).resolve()
 

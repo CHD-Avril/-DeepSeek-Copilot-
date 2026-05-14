@@ -25,7 +25,11 @@ class DeepSeekClient:
                 json=payload,
                 headers=headers,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                detail = response.text.strip()
+                raise RuntimeError(f"Model API returned {response.status_code}: {detail}") from exc
             return response.json()
 
     async def test(self) -> dict[str, Any]:

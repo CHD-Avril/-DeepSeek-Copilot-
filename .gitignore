@@ -11,3 +11,4 @@ logs/*.sqlite3
 knowledge_base/index/*.jsonl
 
 项目需求/
+skills/
